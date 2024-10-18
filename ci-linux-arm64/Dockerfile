@@ -1,0 +1,58 @@
+ARG VCS_REF=master
+ARG BUILD_DATE=""
+ARG REGISTRY_PATH=docker.io/ideallabs
+
+FROM ${REGISTRY_PATH}/base-ci-linux-arm64:latest
+
+ARG RUST_NIGHTLY="2023-05-23"
+
+# metadata
+LABEL summary="Image for Substrate-based projects." \
+	name="${REGISTRY_PATH}/ci-linux-arm64" \
+	maintainer="hello@ideallabs.network" \
+	version="1.0" \
+	description="Inherits from base-ci-linux-arm64; wasm-gc, wasm-bindgen-cli, wasm-pack, cargo-audit, cargo-web, cargo-deny" \
+	io.ideallabs.image.vendor="Ideal Labs" \
+	io.ideallabs.image.source="https://github.com/ideal-lab5/dockerfiles/blob/${VCS_REF}/ci-linux-arm64/Dockerfile" \
+	io.ideallabs.image.documentation="https://github.com/ideal-lab5/dockerfiles/blob/${VCS_REF}/ci-linux-arm64/README.md" \
+	io.ideallabs.image.revision="${VCS_REF}" \
+	io.ideallabs.image.created="${BUILD_DATE}"
+
+# install tools and dependencies
+RUN set -eux && \
+	# install `rust-src` component for ui test
+	rustup component add rust-src rustfmt clippy && \
+	# install wasm target into default (stable) toolchain
+	rustup target add wasm32-unknown-unknown && \
+	# install specific Rust nightly, default is stable, use minimum components
+	rustup toolchain install "nightly-${RUST_NIGHTLY}" --profile minimal --component rustfmt && \
+	# install wasm target into nightly toolchain
+	rustup target add wasm32-unknown-unknown --toolchain "nightly-${RUST_NIGHTLY}" && \
+	# "alias" pinned nightly toolchain as nightly
+	ln -s "/usr/local/rustup/toolchains/nightly-${RUST_NIGHTLY}-aarch64-unknown-linux-gnu" /usr/local/rustup/toolchains/nightly-aarch64-unknown-linux-gnu && \
+	# install cargo tools
+	cargo install cargo-web wasm-pack cargo-deny cargo-spellcheck cargo-hack \
+	  mdbook mdbook-mermaid mdbook-linkcheck mdbook-graphviz mdbook-last-changed && \
+	cargo install cargo-nextest --locked && \
+	# diener 0.4.6 NOTE: before upgrading please test new version with companion build
+	# example can be found here: https://github.com/paritytech/substrate/pull/12710
+	cargo install diener --version 0.4.6 && \
+	# wasm-bindgen-cli version should match the one pinned in substrate
+	# https://github.com/paritytech/substrate/blob/master/bin/node/browser-testing/Cargo.toml#L15
+	cargo install --version 0.2.73 wasm-bindgen-cli && \
+	# install wasm-gc. It's useful for stripping slimming down wasm binaries (polkadot)
+	cargo install wasm-gc && \
+	# install cargo hfuzz and honggfuzz dependencies
+	apt-get -y update && \
+	apt-get install -y binutils-dev libunwind-dev libblocksruntime-dev && \
+	cargo install honggfuzz && \
+	# versions
+	rustup show && \
+	cargo --version && \
+	# apt clean up
+	apt-get autoremove -y && \
+	apt-get clean && \
+	rm -rf /var/lib/apt/lists/* && \
+	# cargo clean up
+	# removes compilation artifacts cargo install creates (>250M)
+	rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git" /root/.cache/sccache
